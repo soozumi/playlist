@@ -602,10 +602,33 @@
       if (/^https?:\/\//i.test(url)) {
         el.crossOrigin = "anonymous";
       }
-      el.loop = true;
+      el.loop = false; // Disabled native loop so 'ended' event can catch track completion
       el.volume = 0;
       el.preload = "auto";
       el.src = url;
+
+      // Automatically advance to the next bookmark when current song ends
+      el.addEventListener("ended", () => {
+        if (!selectedItem || !selectedItem.bookmarks || selectedItem.bookmarks.length === 0) return;
+        
+        let currentIndex = 0;
+        if (selectedTab) {
+          currentIndex = selectedItem.bookmarks.indexOf(selectedTab);
+        }
+        
+        const nextIndex = (currentIndex + 1) % selectedItem.bookmarks.length;
+        const nextBm = selectedItem.bookmarks[nextIndex];
+        
+        selectedTab = nextBm;
+        setPanelText(nextBm.title, nextBm.text || nextBm.sentence);
+        
+        const bookmarkButtons = bookmarkContainer.querySelectorAll(".bookmark-item");
+        bookmarkButtons.forEach((b, idx) => {
+          b.classList.toggle("selected", idx === nextIndex);
+        });
+        
+        apply();
+      });
 
       const track = { el, analyser: null, timeData: null, freqData: null, connected: false };
       tracks.set(url, track);
