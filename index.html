@@ -200,6 +200,7 @@
       padding-top: 1.25rem;
       --seek-color: #555;
       --pct: 0%;
+      --vol-pct: 85%;
     }
 
     .play-btn {
@@ -226,7 +227,7 @@
     .play-btn.is-paused .icon-play { display: block; }
     .play-btn.is-paused .icon-pause { display: none; }
 
-    #seek {
+    #seek, #volume {
       -webkit-appearance: none;
       appearance: none;
       display: block;
@@ -249,7 +250,7 @@
       background: linear-gradient(to right, var(--seek-color) var(--pct), rgba(0, 0, 0, 0.12) var(--pct));
     }
 
-    #seek::-webkit-slider-thumb {
+    #seek::-webkit-slider-thumb, #volume::-webkit-slider-thumb {
       -webkit-appearance: none;
       width: 16px;
       height: 16px;
@@ -259,13 +260,38 @@
       border: 2px solid var(--seek-color);
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
     }
-    #seek::-moz-range-thumb {
+    #seek::-moz-range-thumb, #volume::-moz-range-thumb {
       width: 12px;
       height: 12px;
       border-radius: 50%;
       background: #fff;
       border: 2px solid var(--seek-color);
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .volume-container {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 0.85rem;
+    }
+
+    .volume-container svg {
+      width: 18px;
+      height: 18px;
+      fill: #555;
+      flex-shrink: 0;
+    }
+
+    #volume::-webkit-slider-runnable-track {
+      height: 6px;
+      border-radius: 999px;
+      background: linear-gradient(to right, var(--seek-color) var(--vol-pct), rgba(0, 0, 0, 0.12) var(--vol-pct));
+    }
+    #volume::-moz-range-track {
+      height: 6px;
+      border-radius: 999px;
+      background: linear-gradient(to right, var(--seek-color) var(--vol-pct), rgba(0, 0, 0, 0.12) var(--vol-pct));
     }
 
     .times {
@@ -277,7 +303,7 @@
       color: #555;
     }
 
-    .player.empty .times { opacity: 0.4; }
+    .player.empty .times, .player.empty .volume-container { opacity: 0.4; }
 
     #close-drawer {
       position: absolute;
@@ -401,6 +427,12 @@
           <span id="time-now">0:00</span>
           <span id="time-total">0:00</span>
         </div>
+        <div class="volume-container">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+          </svg>
+          <input type="range" id="volume" min="0" max="1" step="0.01" value="0.85" disabled aria-label="Volume level" />
+        </div>
       </div>
     </aside>
   </div>
@@ -519,6 +551,7 @@
     const closeDrawerBtn = document.getElementById("close-drawer");
     const playerEl = document.getElementById("player");
     const seek = document.getElementById("seek");
+    const volumeSlider = document.getElementById("volume");
     const timeNow = document.getElementById("time-now");
     const timeTotal = document.getElementById("time-total");
     const playBtn = document.getElementById("play-toggle");
@@ -534,6 +567,7 @@
     let selectedTab = null;
     let hover = null;
     let userPaused = false;
+    let currentVolume = 0.85;
     const randomHoverCache = new Map();
 
     const tint = (c) => `color-mix(in srgb, ${c} 28%, ${BASE_BG})`;
@@ -602,11 +636,12 @@
       if (!audio) return;
       clearInterval(audio._fadeInterval);
 
+      const finalTarget = userPaused ? 0 : targetVolume;
       const steps = 12;
       const stepTime = duration / steps;
-      const volumeStep = (targetVolume - audio.volume) / steps;
+      const volumeStep = (finalTarget - audio.volume) / steps;
 
-      if (targetVolume > 0 && audio.paused) {
+      if (finalTarget > 0 && audio.paused) {
         audio.play().catch(() => {});
       }
 
@@ -614,10 +649,10 @@
         const nextVol = Math.min(1, Math.max(0, audio.volume + volumeStep));
         audio.volume = nextVol;
 
-        if (Math.abs(targetVolume - nextVol) < 0.03) {
-          audio.volume = targetVolume;
+        if (Math.abs(finalTarget - nextVol) < 0.03) {
+          audio.volume = finalTarget;
           clearInterval(audio._fadeInterval);
-          if (targetVolume === 0) {
+          if (finalTarget === 0) {
             audio.pause();
             if (!selectedItem) audio.currentTime = 0;
           }
@@ -634,7 +669,7 @@
       currentTrack = track;
       if (track) {
         ensureAnalyser(track);
-        if (!userPaused) fadeAudio(track.el, 0.85, 250);
+        if (!userPaused) fadeAudio(track.el, currentVolume, 250);
       }
     }
 
@@ -643,7 +678,7 @@
       if (currentTrack) {
         ensureAnalyser(currentTrack);
         if (currentTrack.el.paused && !userPaused) {
-          fadeAudio(currentTrack.el, 0.85, 250);
+          fadeAudio(currentTrack.el, currentVolume, 250);
         }
       }
     }
@@ -693,6 +728,15 @@
     seek.addEventListener("change", () => { scrubbing = false; });
     window.addEventListener("pointerup", () => { scrubbing = false; });
 
+    volumeSlider.addEventListener("input", (e) => {
+      currentVolume = parseFloat(e.target.value);
+      if (currentTrack && !userPaused) {
+        currentTrack.el.volume = currentVolume;
+      }
+      const pct = (currentVolume * 100).toFixed(0) + "%";
+      playerEl.style.setProperty("--vol-pct", pct);
+    });
+
     function syncPlayButton() {
       playBtn.classList.toggle("is-paused", userPaused);
       playBtn.setAttribute("aria-label", userPaused ? "Play" : "Pause");
@@ -701,7 +745,7 @@
     function setPaused(p) {
       userPaused = p;
       syncPlayButton();
-      if (currentTrack) fadeAudio(currentTrack.el, p ? 0 : 0.85, p ? 200 : 250);
+      if (currentTrack) fadeAudio(currentTrack.el, p ? 0 : currentVolume, p ? 200 : 250);
     }
 
     playBtn.addEventListener("click", () => {
@@ -716,6 +760,7 @@
         lastDuration = dur;
         seek.max = dur;
         seek.disabled = dur === 0;
+        volumeSlider.disabled = dur === 0;
         playBtn.disabled = dur === 0;
         timeTotal.textContent = fmtTime(dur);
         playerEl.classList.toggle("empty", dur === 0);
@@ -862,7 +907,6 @@
       let raw = 0;
 
       if (tr && tr.analyser && !tr.el.paused && audioCtx && audioCtx.state === "running") {
-        // 1. Measure actual waveform RMS amplitude (tracks real loudness & drum hits)
         tr.analyser.getByteTimeDomainData(tr.timeData);
         let sumSq = 0;
         for (let i = 0; i < tr.timeData.length; i++) {
@@ -871,19 +915,16 @@
         }
         const rms = Math.sqrt(sumSq / tr.timeData.length);
 
-        // 2. Measure bass/low-mid punch (bins 1..12)
         tr.analyser.getByteFrequencyData(tr.freqData);
         let bassSum = 0;
         for (let i = 1; i <= 12; i++) bassSum += tr.freqData[i];
         const bass = (bassSum / 12) / 255;
 
-        // Combine waveform transient energy + bass impact, normalized against current volume
         const volScale = Math.max(0.25, tr.el.volume);
         const combined = ((rms * 3.2) + (bass * 0.85)) / volScale;
         raw = Math.min(1, Math.pow(Math.max(0, combined - 0.12), 1.35));
       }
 
-      // Snappy attack on beats, natural decay between hits
       level += (raw - level) * (raw > level ? 0.85 : 0.22);
       return level;
     }
