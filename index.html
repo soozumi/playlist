@@ -2,32 +2,48 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>yora's playlist</title>
+
+  <!-- Kosugi Maru (needs an internet connection the first time) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Kosugi+Maru&display=swap" rel="stylesheet" />
+
   <style>
     :root {
       --bg: #e4e4e4;
       --ink: #222;
       --panel-bg: #fafafa;
+      --board-bg: #2d2d2d;
+      --font: "Kosugi Maru", "Hiragino Maru Gothic ProN", "Yu Gothic", system-ui, -apple-system, "Segoe UI", sans-serif;
 
-      --drawer-w: clamp(340px, 34vw, 540px);
-      --tab-w: 11rem;
-      --tab-h: 4rem;
-      --tab-gap: 0.75rem;
-      --rail-top: 6rem;
+      --board: min(560px, 92vw);                 /* the dark board; everything on it scales from this */
+      --panel-w: clamp(320px, 36vw, 560px);
+      --rail-w: 7rem;                            /* room for the side tabs (the open tab sticks out the furthest) */
+      --tab-w: 4.9rem;                           /* closed tab */
+      --tab-w-open: 7rem;                        /* open tab */
+    }
+
+    /* keep the board on screen on short windows too */
+    @supports (height: 100svh) {
+      :root { --board: max(290px, min(560px, 92vw, calc(100svh - 280px))); }
     }
 
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
-      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: var(--font);
     }
+
+    html { -webkit-text-size-adjust: 100%; }
 
     body {
       background-color: var(--bg);
       color: var(--ink);
       min-height: 100vh;
+      min-height: 100svh;
       transition: background-color 0.8s cubic-bezier(0.22, 1, 0.36, 1);
       overflow-x: hidden;
       opacity: 0;
@@ -35,36 +51,57 @@
     }
 
     @keyframes fadeIn { to { opacity: 1; } }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(22px); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    /* canvas for background effects (floating hearts); sits behind all the content */
+    #fx {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ---------- page layout ---------- */
 
     .app-layout {
+      position: relative;
+      z-index: 1;
       display: flex;
       min-height: 100vh;
+      min-height: 100svh;
       width: 100%;
       transition: padding-right 0.45s cubic-bezier(0.22, 1, 0.36, 1);
     }
 
+    /* when the panel is open, the board + header re-centre in the space that's left */
     .app-layout.drawer-open {
-      padding-right: calc(var(--drawer-w) + var(--tab-w) + 1.5rem);
+      padding-right: calc(var(--panel-w) + var(--rail-w));
     }
 
     .main-content {
       flex: 1;
+      min-width: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 2rem;
+      padding: 1.5rem 1rem;
     }
 
     .hero {
       display: flex;
       flex-direction: column;
       align-items: center;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1rem;
     }
 
     #note {
-      font-size: 4rem;
+      font-size: 3.6rem;
       line-height: 1;
       color: #000;
       user-select: none;
@@ -72,12 +109,12 @@
     }
 
     #sentence-display {
-      min-height: 3rem;
-      max-width: 460px;
-      margin-top: 0.75rem;
+      min-height: 3.1rem;
+      max-width: min(30rem, 92vw);
+      margin-top: 0.5rem;
       text-align: center;
       font-size: 1.05rem;
-      font-weight: 400;
+      line-height: 1.4;
       color: rgba(0, 0, 0, 0.6);
       opacity: 0;
       transform: translateY(6px);
@@ -89,39 +126,65 @@
       transform: translateY(0);
     }
 
-    .button-grid {
-      display: grid;
-      grid-template-columns: repeat(2, auto);
-      gap: 1rem;
-      justify-content: center;
+    /* ---------- the board: four disks + volume ---------- */
+
+    .board {
+      width: var(--board);
+      padding: calc(var(--board) * 0.07);
+      padding-bottom: calc(var(--board) * 0.055);
+      background: var(--board-bg);
+      border-radius: calc(var(--board) * 0.11);
+      box-shadow: 0 20px 44px rgba(0, 0, 0, 0.16);
+      overflow: hidden;              /* the bouncing rings stay inside the board */
     }
 
+    .disk-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: calc(var(--board) * 0.015);
+    }
+
+    /*
+      .cell  = fixed hit area (never moves, so hover doesn't flicker while a disk spins)
+      .node  = holds the ring + the disk, grows a little when active
+      .ring  = pale outline that bounces with the music
+      .disc  = the coloured disk (spun from JS)
+    */
     .cell {
-      --size: 150px;
-      --pad: 28px;
-      padding: var(--pad);
-      border: none;
-      background: none;
+      --c-dark: color-mix(in srgb, var(--c) 55%, #000);   /* resting outline (ITEMS can override with `dark`) */
+      --c-pale: color-mix(in srgb, var(--c) 22%, #fff);   /* light outline when hovered / open */
+      position: relative;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      aspect-ratio: 1;
+      border: 0;
       border-radius: 50%;
+      background: none;
       cursor: pointer;
       font: inherit;
       outline: none;
       -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
     }
+
+    .cell.active { z-index: 1; }       /* an active disk's ring slides behind its neighbours */
 
     .node {
       position: relative;
-      display: block;
-      width: var(--size);
-      height: var(--size);
+      width: 82%;
+      aspect-ratio: 1;
       will-change: transform;
+      transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
     }
+
+    .cell.active .node { transform: scale(1.08); }
 
     .ring {
       position: absolute;
-      inset: -7px;
+      inset: -3%;
       border-radius: 50%;
-      background: color-mix(in srgb, var(--c) 22%, white);
+      background: var(--c-pale);
       opacity: 0;
       pointer-events: none;
       will-change: transform, opacity;
@@ -130,127 +193,312 @@
     .disc {
       position: relative;
       display: flex;
-      align-items: center;
       justify-content: center;
+      align-items: flex-start;
       width: 100%;
       height: 100%;
+      padding-top: 15%;
       border-radius: 50%;
       background: var(--c);
+      border: clamp(2px, calc(var(--board) * 0.0075), 4px) solid var(--c-dark);
       color: #fff;
-      will-change: transform;
-      font-size: 1.1rem;
-      font-weight: 400;
+      font-size: clamp(0.9rem, calc(var(--board) * 0.04), 1.3rem);
       text-transform: lowercase;
-      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+      will-change: transform;
+      transition: border-color 0.25s ease;
     }
 
-    .cell.active .disc { font-weight: 700; }
+    /* the hole in the middle of the disk */
+    .disc::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 11%;
+      aspect-ratio: 1;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: var(--board-bg);
+      border: clamp(2px, calc(var(--board) * 0.006), 3px) solid var(--c-dark);
+      transition: border-color 0.25s ease;
+    }
+
+    /* hovered / open: outline goes light, label goes bold */
+    .cell.active .disc { border-color: var(--c-pale); font-weight: 700; }
+    .cell.active .disc::after { border-color: var(--c-pale); }
+
+    /* volume, on the board */
+    .volume {
+      display: flex;
+      align-items: center;
+      gap: 0.9rem;
+      margin-top: calc(var(--board) * 0.03);
+      padding: 0 0.3rem;
+    }
+
+    .volume svg {
+      width: 1.6rem;
+      height: 1.6rem;
+      fill: #fff;
+      flex: none;
+    }
+
+    #volume {
+      --vol-pct: 85%;
+      -webkit-appearance: none;
+      appearance: none;
+      flex: 1;
+      min-width: 0;
+      height: 36px;
+      background: transparent;
+      outline: none;
+      cursor: pointer;
+      touch-action: pan-y;
+    }
+
+    #volume::-webkit-slider-runnable-track {
+      height: 8px;
+      border-radius: 999px;
+      background: linear-gradient(to right, #fff var(--vol-pct), #000 var(--vol-pct));
+    }
+    #volume::-moz-range-track {
+      height: 8px;
+      border-radius: 999px;
+      background: linear-gradient(to right, #fff var(--vol-pct), #000 var(--vol-pct));
+    }
+
+    /* chunky grip with three lines */
+    #volume::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      box-sizing: border-box;
+      width: 30px;
+      height: 26px;
+      margin-top: -9px;
+      border: 3px solid #7a7a7a;
+      border-radius: 4px;
+      background-color: #d9d9d9;
+      background-image: linear-gradient(#555, #555), linear-gradient(#555, #555), linear-gradient(#555, #555);
+      background-size: 2px 12px;
+      background-position: 6px 50%, 11px 50%, 16px 50%;
+      background-repeat: no-repeat;
+    }
+    #volume::-moz-range-thumb {
+      box-sizing: border-box;
+      width: 30px;
+      height: 26px;
+      border: 3px solid #7a7a7a;
+      border-radius: 4px;
+      background-color: #d9d9d9;
+      background-image: linear-gradient(#555, #555), linear-gradient(#555, #555), linear-gradient(#555, #555);
+      background-size: 2px 12px;
+      background-position: 6px 50%, 11px 50%, 16px 50%;
+      background-repeat: no-repeat;
+    }
+    #volume:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.4); }
+
+    /* ---------- side panel: [tabs][panel] ---------- */
 
     .slide-drawer {
       position: fixed;
       top: 50%;
-      right: calc(-1 * (var(--drawer-w) + 3rem));
-      transform: translateY(-50%);
-      width: var(--drawer-w);
-      min-height: max(25rem, calc(var(--rail-top) + var(--tab-count, 1) * (var(--tab-h) + var(--tab-gap)) + 2.25rem));
-      max-height: 90vh;
-      background: var(--panel-bg);
-      color: var(--ink);
-      border-radius: 72px 0 0 72px;
-      box-shadow: -12px 0 48px rgba(0, 0, 0, 0.08);
-      padding: 2.75rem 2.5rem 2.5rem 3rem;
+      right: 0;
+      transform: translate(calc(100% + 3rem), -50%);
       display: flex;
-      flex-direction: column;
+      align-items: stretch;          /* the panel grows with the tabs */
       z-index: 100;
-      overflow: visible;
-      transition: right 0.45s cubic-bezier(0.22, 1, 0.36, 1), min-height 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+      filter: drop-shadow(-8px 0 18px rgba(0, 0, 0, 0.07));
+      transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
     }
 
-    .slide-drawer.open { right: 0; }
+    .slide-drawer.open { transform: translate(0, -50%); }
 
-    .drawer-scroll {
-      flex: 1;
-      overflow-y: auto;
+    /* the tab rail is part of the layout, so more tabs = a taller panel */
+    .rail {
+      flex: none;
+      width: var(--rail-w);
+      margin: 1.9rem 0;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      text-align: center;
-      gap: 1.75rem;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+      align-items: flex-end;         /* tabs sit flush against the panel, no gaps between them */
     }
 
-    #drawer-title {
-      font-size: 1.5rem;
-      font-weight: 700;
+    .tab {
+      --tab-bg: color-mix(in srgb, var(--accent) 28%, #fff);
+      flex: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      z-index: 0;
+      --under: 3.2rem;                         /* how far the tab tucks beneath the panel */
+      width: calc(var(--tab-w) + var(--under));
+      margin-right: calc(var(--under) * -1);
+      min-height: 5.5rem;
+      padding: 0.95rem calc(0.5rem + var(--under)) 0.95rem 0.5rem;
+      border: 0;
+      border-radius: 1.3rem 0 0 1.3rem;
+      background: var(--tab-bg);
+      color: var(--ink);
+      font-size: 0.88rem;
       line-height: 1.25;
       text-transform: lowercase;
+      cursor: pointer;
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      transition: width 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+                  min-height 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+                  transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+                  background-color 0.2s ease,
+                  color 0.2s ease;
     }
 
-    #drawer-body {
-      font-size: 1.2rem;
-      line-height: 1.5;
-      color: #333;
-      max-width: 22em;
+    .tab .flip { display: block; }
+
+    /* closed tab: text runs sideways, bottom to top; long names wrap into columns */
+    .tab .label {
+      display: block;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      max-height: 4.6rem;
+      text-align: center;
     }
+
+    /* open tab: flips to horizontal, wider and taller than the rest */
+    .tab.selected {
+      width: calc(var(--tab-w-open) + var(--under));
+      min-height: 8.8rem;
+    }
+
+    .tab.selected .label {
+      writing-mode: horizontal-tb;
+      transform: none;
+      max-height: none;
+    }
+
+    .tab:focus-visible { outline: 2px solid rgba(0, 0, 0, 0.35); outline-offset: -3px; }
+
+    @media (hover: hover) {
+      .tab:hover { transform: translateX(-0.45rem); }
+    }
+
+    .panel {
+      position: relative;
+      z-index: 1;                    /* sits over the tabs' tucked-in ends */
+      flex: none;
+      width: var(--panel-w);
+      min-height: 16rem;
+      padding: 2.6rem 2.6rem 1.8rem 2.6rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      background: var(--panel-bg);
+      border-radius: 4.5rem 0 0 4.5rem;
+    }
+
+    /* the two little ears on top of the panel */
+    .panel::before,
+    .panel::after {
+      content: "";
+      position: absolute;
+      top: -39px;
+      width: 68px;
+      height: 40px;
+      background: var(--panel-bg);
+      clip-path: path("M0 40 C7 24 15 8 26 3 Q34 -1 42 3 C53 8 61 24 68 40 Z");
+      pointer-events: none;
+    }
+    .panel::before { left: 12.2rem; }
+    .panel::after  { left: 19.4rem; }
+
+    .close {
+      position: absolute;
+      top: 1rem;
+      right: 1.1rem;
+      width: 2rem;
+      height: 2rem;
+      border: 0;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.05);
+      color: #777;
+      font-size: 1.2rem;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    .close:hover { background: rgba(0, 0, 0, 0.1); }
+
+    /* the song's description is the only text in the panel */
+    .desc {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      white-space: pre-line;
+      font-size: clamp(1.15rem, 1.7vw, 1.6rem);
+      line-height: 1.35;
+      color: #222;
+    }
+
+    /* ---------- player (play / pause + scrubber) ---------- */
 
     .player {
-      flex-shrink: 0;
-      width: 100%;
-      padding-top: 1.25rem;
       --seek-color: #555;
       --pct: 0%;
-      --vol-pct: 85%;
+      flex: none;
+      width: 100%;
     }
 
     .play-btn {
       display: grid;
       place-items: center;
-      width: 64px;
-      height: 64px;
-      margin: 0 auto 1.1rem;
-      border: none;
+      width: 3.4rem;
+      height: 3.4rem;
+      margin: 0 auto 0.5rem;
+      border: 0;
       border-radius: 50%;
-      background: var(--seek-color);
-      color: #fff;
+      background: none;
+      color: #5a5a5a;
       cursor: pointer;
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.15);
-      transition: transform 0.2s ease, opacity 0.2s ease, background 0.3s ease;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 0.2s ease, opacity 0.2s ease;
     }
-
-    .play-btn:hover:not(:disabled) { transform: scale(1.07); }
-    .play-btn:active:not(:disabled) { transform: scale(0.96); }
+    .play-btn:hover:not(:disabled) { transform: scale(1.08); }
+    .play-btn:active:not(:disabled) { transform: scale(0.94); }
     .play-btn:disabled { opacity: 0.35; cursor: default; }
+    .play-btn:focus-visible { outline: 2px solid #999; outline-offset: 2px; }
 
-    .play-btn svg { width: 28px; height: 28px; fill: currentColor; grid-area: 1 / 1; }
+    .play-btn svg { width: 2.3rem; height: 2.3rem; fill: currentColor; grid-area: 1 / 1; }
     .play-btn .icon-play { display: none; transform: translateX(2px); }
     .play-btn.is-paused .icon-play { display: block; }
     .play-btn.is-paused .icon-pause { display: none; }
 
-    #seek, #volume {
+    #seek {
       -webkit-appearance: none;
       appearance: none;
       display: block;
       width: 100%;
-      height: 20px;
-      margin: 0;
+      height: 24px;
       background: transparent;
       outline: none;
       cursor: pointer;
+      touch-action: pan-y;
     }
 
     #seek::-webkit-slider-runnable-track {
       height: 6px;
       border-radius: 999px;
-      background: linear-gradient(to right, var(--seek-color) var(--pct), rgba(0, 0, 0, 0.12) var(--pct));
+      background: linear-gradient(to right, var(--seek-color) var(--pct), #e0e0e0 var(--pct));
     }
     #seek::-moz-range-track {
       height: 6px;
       border-radius: 999px;
-      background: linear-gradient(to right, var(--seek-color) var(--pct), rgba(0, 0, 0, 0.12) var(--pct));
+      background: linear-gradient(to right, var(--seek-color) var(--pct), #e0e0e0 var(--pct));
     }
 
-    #seek::-webkit-slider-thumb, #volume::-webkit-slider-thumb {
+    #seek::-webkit-slider-thumb {
       -webkit-appearance: none;
       width: 16px;
       height: 16px;
@@ -260,7 +508,7 @@
       border: 2px solid var(--seek-color);
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
     }
-    #seek::-moz-range-thumb, #volume::-moz-range-thumb {
+    #seek::-moz-range-thumb {
       width: 12px;
       height: 12px;
       border-radius: 50%;
@@ -268,131 +516,62 @@
       border: 2px solid var(--seek-color);
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
     }
-
-    .volume-container {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      margin-top: 0.85rem;
-    }
-
-    .volume-container svg {
-      width: 18px;
-      height: 18px;
-      fill: #555;
-      flex-shrink: 0;
-    }
-
-    #volume::-webkit-slider-runnable-track {
-      height: 6px;
-      border-radius: 999px;
-      background: linear-gradient(to right, var(--seek-color) var(--vol-pct), rgba(0, 0, 0, 0.12) var(--vol-pct));
-    }
-    #volume::-moz-range-track {
-      height: 6px;
-      border-radius: 999px;
-      background: linear-gradient(to right, var(--seek-color) var(--vol-pct), rgba(0, 0, 0, 0.12) var(--vol-pct));
-    }
+    #seek:disabled { cursor: default; opacity: 0.4; }
 
     .times {
       display: flex;
       justify-content: space-between;
-      margin-top: 0.35rem;
-      font-size: 0.9rem;
+      margin-top: 0.1rem;
+      font-size: 0.8rem;
       font-variant-numeric: tabular-nums;
-      color: #555;
+      color: #666;
     }
+    .player.empty .times { opacity: 0.4; }
 
-    .player.empty .times, .player.empty .volume-container { opacity: 0.4; }
+    /* ---------- phones / narrow windows: the panel drops in under the board ---------- */
 
-    #close-drawer {
-      position: absolute;
-      top: 1.5rem;
-      right: 1.75rem;
-      width: 2.25rem;
-      height: 2.25rem;
-      border: none;
-      border-radius: 50%;
-      background: rgba(0, 0, 0, 0.06);
-      color: #444;
-      font-size: 1.3rem;
-      line-height: 1;
-      cursor: pointer;
-      transition: background 0.2s ease;
-    }
+    @media (max-width: 860px) {
+      :root { --rail-w: 6rem; --tab-w: 4.4rem; --tab-w-open: 6rem; }
 
-    #close-drawer:hover { background: rgba(0, 0, 0, 0.12); }
-
-    .bookmark-list {
-      position: absolute;
-      top: var(--rail-top);
-      right: calc(100% - 2px);
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: var(--tab-gap);
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.3s ease;
-    }
-
-    .slide-drawer.open .bookmark-list {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
-    .bookmark-item {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      min-width: 6rem;
-      max-width: 15rem;
-      height: var(--tab-h);
-      padding: 0 1.4rem 0 1.5rem;
-      background: var(--panel-bg);
-      border: 2px solid transparent;
-      border-right: none;
-      border-radius: 32px 0 0 32px;
-      color: var(--ink);
-      font-size: 1.05rem;
-      font-weight: 400;
-      line-height: 1.15;
-      text-align: right;
-      text-transform: lowercase;
-      cursor: pointer;
-      outline: none;
-      transition: padding-left 0.25s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.2s ease;
-    }
-
-    .bookmark-item:hover,
-    .bookmark-item:focus-visible,
-    .bookmark-item.selected {
-      font-weight: 700;
-      border-color: color-mix(in srgb, var(--accent) 55%, #555);
-    }
-
-    .bookmark-item:hover,
-    .bookmark-item:focus-visible {
-      padding-left: 2.1rem;
-    }
-
-    .bookmark-item .label::after {
-      content: attr(data-label);
-      display: block;
-      height: 0;
-      overflow: hidden;
-      visibility: hidden;
-      font-weight: 700;
-    }
-
-    @media (max-width: 760px) {
-      :root { --drawer-w: 80vw; }
+      .app-layout { flex-direction: column; }
       .app-layout.drawer-open { padding-right: 0; }
-      .slide-drawer { border-radius: 48px 0 0 48px; padding-left: 2.25rem; }
+      .main-content { flex: none; padding: 1.25rem 1rem 1rem; }
+
+      .slide-drawer {
+        position: relative;
+        top: auto;
+        right: auto;
+        transform: none;
+        display: none;
+        width: calc(100% - 0.6rem);
+        margin: 2.6rem 0 2rem auto;
+        transition: none;
+      }
+      .slide-drawer.open { display: flex; transform: none; animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
+
+      .panel {
+        flex: 1;
+        width: auto;
+        min-width: 0;
+        min-height: 14rem;
+        padding: 2.2rem 1.3rem 1.4rem 1.6rem;
+        border-radius: 3.2rem 0 0 3.2rem;
+      }
+      .panel::before { left: 5.2rem; }
+      .panel::after  { left: 10.4rem; }
+
+      .desc { font-size: 1.1rem; }
+      .tab { font-size: 0.82rem; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .node, .tab, .slide-drawer { transition: none; }
     }
   </style>
 </head>
 <body>
+
+  <canvas id="fx" aria-hidden="true"></canvas>
 
   <div class="app-layout" id="app-layout">
     <div class="main-content">
@@ -400,53 +579,62 @@
         <div id="note" aria-hidden="true">♫</div>
         <div id="sentence-display" aria-live="polite"></div>
       </div>
-      <main class="button-grid" id="button-container"></main>
-    </div>
 
-    <aside class="slide-drawer" id="slide-drawer" aria-label="Details">
-      <div class="bookmark-list" id="bookmark-container"></div>
-      <button id="close-drawer" aria-label="Close panel">×</button>
+      <section class="board" aria-label="Moods">
+        <div class="disk-grid" id="button-container"></div>
 
-      <div class="drawer-scroll">
-        <h2 id="drawer-title"></h2>
-        <p id="drawer-body"></p>
-      </div>
-
-      <div class="player empty" id="player">
-        <button class="play-btn" id="play-toggle" aria-label="Pause" disabled>
-          <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="6" y="5" width="4.2" height="14" rx="1.2" />
-            <rect x="13.8" y="5" width="4.2" height="14" rx="1.2" />
-          </svg>
-          <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" />
-          </svg>
-        </button>
-        <input type="range" id="seek" min="0" max="0" step="any" value="0" disabled aria-label="Song position" />
-        <div class="times">
-          <span id="time-now">0:00</span>
-          <span id="time-total">0:00</span>
-        </div>
-        <div class="volume-container">
+        <div class="volume">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
           </svg>
-          <input type="range" id="volume" min="0" max="1" step="0.01" value="0.85" disabled aria-label="Volume level" />
+          <input type="range" id="volume" min="0" max="1" step="0.01" value="0.85" aria-label="Volume" />
+        </div>
+      </section>
+    </div>
+
+    <aside class="slide-drawer" id="slide-drawer" aria-label="Now playing">
+      <div class="rail" id="bookmark-container"></div>
+
+      <div class="panel">
+        <button class="close" id="close-drawer" aria-label="Close panel">×</button>
+
+        <p class="desc" id="drawer-body"></p>
+
+        <div class="player empty" id="player">
+          <button class="play-btn" id="play-toggle" aria-label="Pause" disabled>
+            <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="6" y="5" width="4.2" height="14" rx="1.2" />
+              <rect x="13.8" y="5" width="4.2" height="14" rx="1.2" />
+            </svg>
+            <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" />
+            </svg>
+          </button>
+          <input type="range" id="seek" min="0" max="0" step="any" value="0" disabled aria-label="Song position" />
+          <div class="times">
+            <span id="time-now">0:00</span>
+            <span id="time-total">0:00</span>
+          </div>
         </div>
       </div>
     </aside>
   </div>
 
   <script>
+    /*
+      Each disk has `bookmarks` (its songs / side tabs).
+      Per song:  label, color, sentence (shown at the top), audio, text (the description in the panel)
+      Optional:  bg (page background colour), effect: "hearts"
+      Per disk:  dark = the resting outline colour of the disk
+    */
     const ITEMS = [
       {
         id: "happy",
         label: "happy",
         color: "#ddd2a3",
+        dark: "#b3a55f",
         sentence: "Is there a moment anymore perfect than this?",
         audio: "",
-        detailsTitle: "Yora's happiest moment",
-        detailsText: "collection of songs i can imagine Yora's happiest moments to",
         bookmarks: [
           {
             id: "happy-sub-1",
@@ -454,7 +642,6 @@
             color: "#e9d8a6",
             sentence: "Let's go to the Balsa islands or something",
             audio: "/audio/Orange_AIRLINE.mp3",
-            title: "Yora's happiest moment",
             text: "yora (happily) traveling the world with a singular suitcase and a pair of sunglasses"
           },
           {
@@ -463,7 +650,6 @@
             color: "#d9a5b3",
             sentence: "Jappon probably has a cool night life",
             audio: "/audio/lovestory.mp3",
-            title: "Yora's happiest moments",
             text: "Yora having her serial experiment lain moment (without the murder suicide at the club)"
           },
           {
@@ -472,16 +658,16 @@
             color: "#7d7db5",
             sentence: "So this is what this was all for...?",
             audio: "/audio/Scattered_Flowers.mp3",
-            title: "Yora's happiest moments",
             text: "that moment when you realize maybe the real artifact was the friends you made along the way"
           },
           {
             id: "happy-sub-4",
             label: "Love Song",
             color: "#e82734",
+            bg: "#edabca",            // pink page background (any tab can set its own)
+            effect: "hearts",         // floating hearts behind everything
             sentence: "What's this feeling in my chest?",
             audio: "/audio/my_destiny.mp3",
-            title: "Yora's happiest moments",
             text: "when you're lowk in love"
           }
         ]
@@ -490,10 +676,9 @@
         id: "sad",
         label: "sad",
         color: "#8fa8d4",
+        dark: "#4d6fb3",
         sentence: "at least she's rich",
         audio: "",
-        detailsTitle: "yora's saddest moments",
-        detailsText: "collection of songs i would imagine playing while yora realizes this shit isn't unicorns and rainbows!",
         bookmarks: [
           {
             id: "sad-sub-1",
@@ -501,7 +686,6 @@
             color: "#7f93b0",
             sentence: "rich people have feelings too!",
             audio: "/audio/openingtheme.mp3",
-            title: "Yora's saddest moments",
             text: "Yora just stumbled upon the dead bodies of all of her friends. this sucks...\n LOWK just skip to 1:16 for the most bang 4 ur buck"
           }
         ]
@@ -510,10 +694,9 @@
         id: "default",
         label: "default",
         color: "#888888",
+        dark: "#4a4a4a",
         sentence: "looms over her like a rainy cloud, or the sun. either way",
         audio: "",
-        detailsTitle: "yora's default state",
-        detailsText: "collection of songs that are integral to Yora's character no matter the situation",
         bookmarks: [
           {
             id: "default-sub-1",
@@ -521,7 +704,6 @@
             color: "#a9a9a9",
             sentence: "growing up lonely really changes you, doesn't it?",
             audio: "/audio/SABBATH.mp3",
-            title: "yora's default state",
             text: "i play this everytime i need to write something reflective for Yora. it just so happens that shes reflecting ALL the time."
           }
         ]
@@ -530,10 +712,9 @@
         id: "battle",
         label: "battle",
         color: "#b05a56",
+        dark: "#8d2a27",
         sentence: "let's make al qaeda look like a birthday party!",
         audio: "",
-        detailsTitle: "Tag, you're it!",
-        detailsText: "a collection of songs i'd imagine Yora in battle to, in which she dies everytime in all of them",
         bookmarks: [
           {
             id: "battle-sub-1",
@@ -541,22 +722,21 @@
             color: "#c9736b",
             sentence: "If only she was a better student...",
             audio: "/audio/Five.mp3",
-            title: "Tag, you're it!",
             text: "The wind just blew through her hair as she stares down are her opponent... this is their big day. THEY'RE ABOUT TO CATCH THEIR FIRST BODY!"
           }
         ]
       }
     ];
 
+    /* ---------- elements ---------- */
     const BASE_BG = "#e4e4e4";
     const appLayout = document.getElementById("app-layout");
     const container = document.getElementById("button-container");
     const sentenceEl = document.getElementById("sentence-display");
     const noteEl = document.getElementById("note");
     const drawer = document.getElementById("slide-drawer");
-    const drawerTitle = document.getElementById("drawer-title");
-    const drawerBody = document.getElementById("drawer-body");
-    const bookmarkContainer = document.getElementById("bookmark-container");
+    const rail = document.getElementById("bookmark-container");
+    const descEl = document.getElementById("drawer-body");
     const closeDrawerBtn = document.getElementById("close-drawer");
     const playerEl = document.getElementById("player");
     const seek = document.getElementById("seek");
@@ -566,18 +746,22 @@
     const playBtn = document.getElementById("play-toggle");
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const stackedQuery = window.matchMedia("(max-width: 860px)");
     const SPIN = reduceMotion ? 0 : 1;
     const TAU = Math.PI * 2;
     const BOUNCE = reduceMotion ? 0 : 0.65;
 
     drawer.inert = true;
 
-    let selectedItem = null;
-    let selectedTab = null;
-    let hover = null;
+    /* ---------- state ---------- */
+    let selectedItem = null;   // the disk whose panel is open
+    let selectedTab = null;    // the song open in the panel
+    let hover = null;          // { src, owner } = what the pointer / keyboard is on right now
     let userPaused = false;
     let currentVolume = 0.85;
+    let fxMode = null;         // background effect of whatever is active, e.g. "hearts"
     const randomHoverCache = new Map();
+    const tabEls = [];
 
     const tint = (c) => `color-mix(in srgb, ${c} 28%, ${BASE_BG})`;
 
@@ -588,6 +772,7 @@
       return null;
     }
 
+    /* ---------- audio ---------- */
     const tracks = new Map();
     let currentTrack = null;
     let audioCtx = null;
@@ -611,32 +796,27 @@
       if (/^https?:\/\//i.test(url)) {
         el.crossOrigin = "anonymous";
       }
-      el.loop = false; // Disabled native loop so 'ended' event can catch track completion
+      el.loop = false;            // not looping, so 'ended' can move on to the next song
       el.volume = 0;
       el.preload = "auto";
       el.src = url;
 
-      // Automatically advance to the next bookmark when current song ends
+      // when a song ends, go on to the next tab of the open disk
       el.addEventListener("ended", () => {
-        if (!selectedItem || !selectedItem.bookmarks || selectedItem.bookmarks.length === 0) return;
-        
-        let currentIndex = 0;
-        if (selectedTab) {
-          currentIndex = selectedItem.bookmarks.indexOf(selectedTab);
+        const list = selectedItem && selectedItem.bookmarks;
+        if (!list || list.length === 0) return;
+
+        const i = Math.max(0, list.indexOf(selectedTab));
+        const next = list[(i + 1) % list.length];
+        const nextTrack = getTrack(next.audio);
+
+        if (nextTrack === tracks.get(url)) {            // only one song: start it again
+          el.currentTime = 0;
+          el.play().catch(() => {});
+          return;
         }
-        
-        const nextIndex = (currentIndex + 1) % selectedItem.bookmarks.length;
-        const nextBm = selectedItem.bookmarks[nextIndex];
-        
-        selectedTab = nextBm;
-        setPanelText(nextBm.title, nextBm.text || nextBm.sentence);
-        
-        const bookmarkButtons = bookmarkContainer.querySelectorAll(".bookmark-item");
-        bookmarkButtons.forEach((b, idx) => {
-          b.classList.toggle("selected", idx === nextIndex);
-        });
-        
-        apply();
+        if (nextTrack) nextTrack.el.currentTime = 0;
+        selectTab(next);
       });
 
       const track = { el, analyser: null, timeData: null, freqData: null, connected: false };
@@ -686,7 +866,7 @@
           clearInterval(audio._fadeInterval);
           if (finalTarget === 0) {
             audio.pause();
-            if (!selectedItem) audio.currentTime = 0;
+            if (!selectedItem) audio.currentTime = 0;   // keep the spot while the panel is open
           }
         }
       }, stepTime);
@@ -705,6 +885,7 @@
       }
     }
 
+    // browsers only allow sound after a tap / click / key press
     function unlockAudio() {
       getAudioContext();
       if (currentTrack) {
@@ -717,11 +898,16 @@
     window.addEventListener("pointerdown", unlockAudio, { passive: true });
     window.addEventListener("keydown", unlockAudio, { passive: true });
 
+    /* ---------- scene: background, sentence, description, audio, active disk ---------- */
     const nodes = [];
 
     function apply() {
       const t = resolveTarget();
-      document.body.style.backgroundColor = t ? tint(t.src.color) : BASE_BG;
+      document.body.style.backgroundColor = t ? (t.src.bg || tint(t.src.color)) : BASE_BG;
+
+      const nextFx = (t && t.src.effect) || null;
+      if (nextFx === "hearts" && fxMode !== "hearts") seedHearts();   // start with a scattering, not an empty sky
+      fxMode = nextFx;
 
       if (t) {
         sentenceEl.textContent = t.src.sentence;
@@ -730,17 +916,28 @@
         sentenceEl.classList.remove("visible");
       }
 
+      // the panel only shows the description of whichever song is playing
+      if (selectedItem) {
+        const src = t ? t.src : (selectedTab || selectedItem);
+        descEl.textContent = (src && src.text) || "";
+      }
+
       nodes.forEach((n) => {
         n.active = !!t && t.owner === n.item;
         n.cell.classList.toggle("active", n.active);
       });
 
+      // light up the tab you're pointing at (the dark hover look also works for keyboard + touch)
+      tabEls.forEach(({ bm, btn }) => {
+        btn.dataset.hover = hover && hover.src === bm ? "1" : "0";
+      });
+
       if (t) playerEl.style.setProperty("--seek-color", `color-mix(in srgb, ${t.src.color} 55%, #555)`);
-      
-      const newTrack = t ? getTrack(t.src.audio) : null;
-      setTrack(newTrack);
+
+      setTrack(t ? getTrack(t.src.audio) : null);
     }
 
+    /* ---------- scrubber + play / pause ---------- */
     let scrubbing = false;
     let lastDuration = -1;
 
@@ -765,8 +962,7 @@
       if (currentTrack && !userPaused) {
         currentTrack.el.volume = currentVolume;
       }
-      const pct = (currentVolume * 100).toFixed(0) + "%";
-      playerEl.style.setProperty("--vol-pct", pct);
+      volumeSlider.style.setProperty("--vol-pct", (currentVolume * 100).toFixed(0) + "%");
     });
 
     function syncPlayButton() {
@@ -792,7 +988,6 @@
         lastDuration = dur;
         seek.max = dur;
         seek.disabled = dur === 0;
-        volumeSlider.disabled = dur === 0;
         playBtn.disabled = dur === 0;
         timeTotal.textContent = fmtTime(dur);
         playerEl.classList.toggle("empty", dur === 0);
@@ -808,38 +1003,52 @@
       playerEl.style.setProperty("--pct", pct.toFixed(2) + "%");
     }
 
+    /* ---------- the four disks ---------- */
+    function randomSong(item) {
+      const withAudio = (item.bookmarks || []).filter((b) => b.audio);
+      const pool = withAudio.length ? withAudio : (item.bookmarks || []);
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    // pointing at a disk picks one of its songs at random and plays it
+    function hoverDisk(item) {
+      let src = item;
+      if (item.bookmarks && item.bookmarks.length > 0) {
+        if (!randomHoverCache.has(item.id)) randomHoverCache.set(item.id, randomSong(item));
+        src = randomHoverCache.get(item.id);
+      }
+      hover = { src, owner: item };
+      apply();
+    }
+
+    function unhoverDisk(item) {
+      randomHoverCache.delete(item.id);
+      if (hover && hover.owner === item) { hover = null; apply(); }
+    }
+
     ITEMS.forEach((item) => {
       const cell = document.createElement("button");
+      cell.type = "button";
       cell.className = "cell";
       cell.style.setProperty("--c", item.color);
+      if (item.dark) cell.style.setProperty("--c-dark", item.dark);
       cell.innerHTML = '<span class="node"><span class="ring"></span><span class="disc"></span></span>';
       cell.querySelector(".disc").textContent = item.label;
 
-      const setHover = () => {
-        let targetSource = item;
-        if (item.bookmarks && item.bookmarks.length > 0) {
-          if (!randomHoverCache.has(item.id)) {
-            const randomIndex = Math.floor(Math.random() * item.bookmarks.length);
-            randomHoverCache.set(item.id, item.bookmarks[randomIndex]);
-          }
-          targetSource = randomHoverCache.get(item.id);
-        }
-        hover = { src: targetSource, owner: item };
-        apply();
-      };
+      cell.addEventListener("pointerenter", (e) => { if (e.pointerType !== "touch") hoverDisk(item); });
+      cell.addEventListener("pointerleave", () => unhoverDisk(item));
+      cell.addEventListener("focus", () => { if (cell.matches(":focus-visible")) hoverDisk(item); });
+      cell.addEventListener("blur", () => unhoverDisk(item));
 
-      const clearHover = () => {
-        randomHoverCache.delete(item.id);
-        if (hover && hover.owner === item) { hover = null; apply(); }
-      };
-
-      cell.addEventListener("mouseenter", setHover);
-      cell.addEventListener("mouseleave", clearHover);
-      cell.addEventListener("focus", setHover);
-      cell.addEventListener("blur", clearHover);
+      // clicking opens the song that is playing right now
       cell.addEventListener("click", () => {
         unlockAudio();
-        openPanel(item);
+        if (!(hover && hover.owner === item)) {          // touch: there was no hover, so pick now
+          randomHoverCache.delete(item.id);
+          hoverDisk(item);
+        }
+        const song = hover && hover.src !== item ? hover.src : null;
+        openPanel(item, song);
       });
 
       container.appendChild(cell);
@@ -856,58 +1065,72 @@
       });
     });
 
-    function setPanelText(title, text) {
-      drawerTitle.textContent = title || "";
-      drawerBody.textContent = text || "";
+    /* ---------- side tabs ---------- */
+    // closed tab -> open tab: the label turns from vertical to horizontal
+    function flip(btn, toOpen) {
+      if (reduceMotion || !btn.animate) return;
+      btn.querySelector(".flip").animate(
+        [{ transform: toOpen ? "rotate(-90deg)" : "rotate(90deg)" }, { transform: "rotate(0deg)" }],
+        { duration: 450, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
+      );
+    }
+
+    function selectTab(bm) {
+      selectedTab = bm;
+      hover = null;
+      tabEls.forEach(({ bm: b, btn }) => {
+        const on = b === bm;
+        if (btn.classList.contains("selected") !== on) {
+          btn.classList.toggle("selected", on);
+          flip(btn, on);
+        }
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      if (userPaused) setPaused(false);
+      apply();
     }
 
     function renderTabs(item) {
-      bookmarkContainer.innerHTML = "";
+      rail.innerHTML = "";
+      tabEls.length = 0;
+
       (item.bookmarks || []).forEach((bm) => {
         const btn = document.createElement("button");
-        btn.className = "bookmark-item";
+        btn.type = "button";
+        btn.className = "tab" + (bm === selectedTab ? " selected" : "");
         btn.style.setProperty("--accent", bm.color);
-        btn.innerHTML = '<span class="label"></span>';
-        const labelEl = btn.querySelector(".label");
-        labelEl.textContent = bm.label;
-        labelEl.dataset.label = bm.label;
+        btn.setAttribute("aria-pressed", bm === selectedTab ? "true" : "false");
+        btn.innerHTML = '<span class="flip"><span class="label"></span></span>';
+        btn.querySelector(".label").textContent = bm.label;
 
-        btn.addEventListener("mouseenter", () => { hover = { src: bm, owner: selectedItem }; apply(); });
-        btn.addEventListener("mouseleave", () => { if (hover && hover.src === bm) { hover = null; apply(); } });
+        const on = () => { hover = { src: bm, owner: selectedItem }; apply(); };
+        const off = () => { if (hover && hover.src === bm) { hover = null; apply(); } };
 
-        btn.addEventListener("click", () => {
-          unlockAudio();
-          selectedTab = bm;
-          if (userPaused) setPaused(false);
-          bookmarkContainer.querySelectorAll(".bookmark-item").forEach((b) => b.classList.toggle("selected", b === btn));
-          setPanelText(bm.title, bm.text || bm.sentence);
-          apply();
-        });
+        btn.addEventListener("pointerenter", (e) => { if (e.pointerType !== "touch") on(); });
+        btn.addEventListener("pointerleave", off);
+        btn.addEventListener("focus", () => { if (btn.matches(":focus-visible")) on(); });
+        btn.addEventListener("blur", off);
+        btn.addEventListener("click", () => { unlockAudio(); selectTab(bm); });
 
-        bookmarkContainer.appendChild(btn);
+        rail.appendChild(btn);
+        tabEls.push({ bm, btn });
       });
     }
 
-    function measureTabs() {
-      let max = 0;
-      bookmarkContainer.querySelectorAll(".bookmark-item").forEach((b) => {
-        max = Math.max(max, b.offsetWidth);
-      });
-      document.documentElement.style.setProperty("--tab-w", (max + 12) + "px");
-    }
-
-    function openPanel(item) {
+    function openPanel(item, song) {
       selectedItem = item;
-      selectedTab = null;
+      selectedTab = song || null;
+      hover = null;
       if (userPaused) setPaused(false);
       renderTabs(item);
-      measureTabs();
-      setPanelText(item.detailsTitle, item.detailsText);
-      drawer.style.setProperty("--tab-count", (item.bookmarks || []).length);
       drawer.inert = false;
       drawer.classList.add("open");
       appLayout.classList.add("drawer-open");
       apply();
+
+      if (stackedQuery.matches) {          // phones: the panel sits under the board, so bring it into view
+        setTimeout(() => drawer.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "nearest" }), 80);
+      }
     }
 
     function closePanel() {
@@ -916,6 +1139,7 @@
       selectedItem = null;
       selectedTab = null;
       hover = null;
+      tabEls.length = 0;
       drawer.classList.remove("open");
       appLayout.classList.remove("drawer-open");
       drawer.inert = true;
@@ -925,6 +1149,115 @@
     closeDrawerBtn.addEventListener("click", closePanel);
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
 
+    /* ---------- floating hearts (any song with effect: "hearts") ---------- */
+    const fxCanvas = document.getElementById("fx");
+    const fxCtx = fxCanvas.getContext("2d");
+    const HEART_COLORS = ["#c96192"];
+    const hearts = [];
+    let fxAmp = 0;             // eases 0 -> 1 while hearts are on, so they fade in and out instead of popping
+    let fxW = 0, fxH = 0;
+    let spawnCarry = 0;
+    let fxDirty = false;
+
+    function resizeFx() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      fxW = window.innerWidth;
+      fxH = window.innerHeight;
+      fxCanvas.width = Math.round(fxW * dpr);
+      fxCanvas.height = Math.round(fxH * dpr);
+      fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resizeFx();
+    window.addEventListener("resize", resizeFx);
+
+    // how many hearts should be on screen (more on bigger screens)
+    const heartTarget = () => Math.min(70, Math.max(28, (fxW * fxH) / 20000));
+
+    function spawnHeart(age = 0) {
+      const life = 7 + Math.random() * 6;
+      hearts.push({
+        x: Math.random() * fxW,
+        y: Math.random() * fxH,
+        size: 9 + Math.random() * 14,                  // tiny: roughly 9-23px wide
+        age: Math.min(age, life * 0.7),
+        life,
+        vy: -(10 + Math.random() * 22),                // drifts upward, px per second
+        sway: 10 + Math.random() * 22,                 // side-to-side wobble, px
+        swayFreq: 0.5 + Math.random() * 0.8,
+        phase: Math.random() * TAU,
+        rot: (Math.random() - 0.5) * 0.6,
+        rotSpeed: (Math.random() - 0.5) * 0.5,
+        color: HEART_COLORS[Math.floor(Math.random() * HEART_COLORS.length)],
+        peak: 0.6 + Math.random() * 0.35               // how opaque this one gets
+      });
+    }
+
+    function seedHearts() {
+      // top up to ~60% of the target (sweeping the mouse across tabs shouldn't pile up extra hearts)
+      const n = Math.round(heartTarget() * 0.6) - hearts.length;
+      for (let i = 0; i < n; i++) spawnHeart(Math.random() * 6);
+    }
+
+    function drawHeart(ctx, size) {
+      // Two round lobes on a tilted square, with the bottom point softened.
+      const d = size / 2.5;                  // half-diagonal of the square
+      const r = d / Math.SQRT2;              // lobe radius
+      const cr = d * 0.4;                    // how rounded the bottom tip is
+      ctx.translate(0, d * 0.1);             // nudge so the heart is centred on its position
+      ctx.beginPath();
+      ctx.moveTo(d / 2, d / 2);
+      ctx.arcTo(0, d, -d / 2, d / 2, cr);    // rounded bottom tip
+      ctx.lineTo(-d, 0);
+      ctx.arc(-d / 2, -d / 2, r, Math.PI * 0.75, Math.PI * 1.75);
+      ctx.arc(d / 2, -d / 2, r, Math.PI * 1.25, Math.PI * 2.25);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function updateFx(dt) {
+      fxAmp += ((fxMode === "hearts" ? 1 : 0) - fxAmp) * Math.min(1, dt * 2.5);
+      if (fxAmp < 0.002) fxAmp = 0;
+
+      if (fxMode === "hearts") {
+        spawnCarry += dt * (heartTarget() / 9);        // average heart lives about 9 seconds
+        while (spawnCarry >= 1) {
+          spawnCarry -= 1;
+          if (hearts.length < heartTarget()) spawnHeart();
+        }
+      }
+
+      // nothing visible: clear once, then do no work at all
+      if (fxAmp === 0 && fxMode !== "hearts") {
+        hearts.length = 0;
+        if (fxDirty) { fxCtx.clearRect(0, 0, fxW, fxH); fxDirty = false; }
+        return;
+      }
+
+      const m = reduceMotion ? 0 : 1;                  // reduced motion: hearts fade in place instead of drifting
+      fxCtx.clearRect(0, 0, fxW, fxH);
+      fxDirty = true;
+
+      for (let i = hearts.length - 1; i >= 0; i--) {
+        const h = hearts[i];
+        h.age += dt;
+        if (h.age >= h.life) { hearts.splice(i, 1); continue; }
+
+        const t = h.age / h.life;
+        const env = Math.min(1, t / 0.2, (1 - t) / 0.3);          // fade in, hold, fade out
+        const x = h.x + Math.sin(h.phase + h.age * h.swayFreq) * h.sway * m;
+        const y = h.y + h.vy * h.age * m;
+
+        fxCtx.save();
+        fxCtx.translate(x, y);
+        fxCtx.rotate(h.rot + h.rotSpeed * h.age * m);
+        fxCtx.globalAlpha = h.peak * env * fxAmp;
+        fxCtx.fillStyle = h.color;
+        drawHeart(fxCtx, h.size);
+        fxCtx.restore();
+      }
+    }
+
+    /* ---------- animation loop: spinning disks + beat-reactive rings ---------- */
     let level = 0;
     let playAmp = 1;
     let lastTime = performance.now();
@@ -967,6 +1300,7 @@
       const lvl = readLevel();
       playAmp += ((userPaused ? 0 : 1) - playAmp) * Math.min(1, dt * 6);
       updatePlayer();
+      updateFx(dt);
       let maxAmp = 0;
 
       nodes.forEach((n) => {
@@ -985,7 +1319,7 @@
         n.disc.style.transform = `rotate(${n.angle.toFixed(3)}rad)`;
 
         n.ring.style.opacity = n.amp.toFixed(3);
-        n.ring.style.transform = `scale(${(1 + n.amp * (0.015 + lvl * BOUNCE)).toFixed(3)})`;
+        n.ring.style.transform = `scale(${Math.min(1.28, 1 + n.amp * (0.015 + lvl * BOUNCE)).toFixed(3)})`;
       });
 
       noteEl.style.transform = `scale(${(1 + maxAmp * lvl * 0.22).toFixed(3)})`;
