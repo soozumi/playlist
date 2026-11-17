@@ -887,6 +887,20 @@
       }, stepTime);
     }
 
+    // hovering a disk previews its song from the middle (the scrubber sits halfway) until you click it
+    let midStart = true;
+
+    function startAtMiddle(track) {
+      const el = track.el;
+      const go = () => {
+        if (isFinite(el.duration) && el.duration > 0 && !selectedItem && currentTrack === track) {
+          el.currentTime = el.duration / 2;
+        }
+      };
+      if (el.readyState >= 1) go();
+      else el.addEventListener("loadedmetadata", go, { once: true });
+    }
+
     function setTrack(track) {
       if (track === currentTrack) {
         if (track) ensureAnalyser(track);
@@ -896,6 +910,7 @@
       currentTrack = track;
       if (track) {
         ensureAnalyser(track);
+        if (!selectedItem && midStart) startAtMiddle(track);
         if (!userPaused) fadeAudio(track.el, currentVolume, 250);
       }
     }
@@ -1061,7 +1076,9 @@
         unlockAudio();
         if (!(hover && hover.owner === item)) {          // touch: there was no hover, so pick now
           randomHoverCache.delete(item.id);
+          midStart = false;                              // a tap isn't a preview: start from the beginning
           hoverDisk(item);
+          midStart = true;
         }
         const song = hover && hover.src !== item ? hover.src : null;
         openPanel(item, song);
@@ -1375,10 +1392,10 @@
         const nE = Math.min(1, Math.max(0, (energy - base) / Math.max(0.04, maxE - base)));
         const nF = Math.min(1, flux / maxF);
 
-        raw = energy < 0.03 ? 0 : Math.min(1, Math.pow(nE * 0.55 + nF * 0.75, 1.15));
+        raw = energy < 0.03 ? 0 : Math.min(1, Math.pow(nE * 0.6 + nF * 0.4, 1.5));
       }
 
-      level += (raw - level) * (raw > level ? 0.95 : 0.35);   // jumps up on a hit, lets go quickly
+      level += (raw - level) * (raw > level ? 0.6 : 0.16);    // rises on a hit, then eases back gently
       return level;
     }
 
