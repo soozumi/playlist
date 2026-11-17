@@ -887,13 +887,15 @@
       }, stepTime);
     }
 
-    // hovering a disk previews its song from the middle (the scrubber sits halfway) until you click it
+    // pointing at a song that isn't the open one is a preview: it starts from the middle (the scrubber sits
+    // halfway) until you click it. The song that is open keeps its own spot.
     let midStart = true;
+    const isPreview = (track) => midStart && !(selectedTab && getTrack(selectedTab.audio) === track);
 
     function startAtMiddle(track) {
       const el = track.el;
       const go = () => {
-        if (isFinite(el.duration) && el.duration > 0 && !selectedItem && currentTrack === track) {
+        if (isFinite(el.duration) && el.duration > 0 && currentTrack === track && isPreview(track)) {
           el.currentTime = el.duration / 2;
         }
       };
@@ -910,7 +912,7 @@
       currentTrack = track;
       if (track) {
         ensureAnalyser(track);
-        if (!selectedItem && midStart) startAtMiddle(track);
+        if (isPreview(track)) startAtMiddle(track);
         if (!userPaused) fadeAudio(track.el, currentVolume, 250);
       }
     }
