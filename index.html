@@ -121,6 +121,10 @@
       transition: opacity 0.4s ease, transform 0.4s ease;
     }
 
+    body.night #note { color: #fff; }
+    body.night #sentence-display { color: rgba(255, 255, 255, 0.78); }
+    #note, #sentence-display { transition: color 0.8s ease, opacity 0.4s ease, transform 0.4s ease; }
+
     #sentence-display.visible {
       opacity: 1;
       transform: translateY(0);
@@ -624,7 +628,7 @@
     /*
       Each disk has `bookmarks` (its songs / side tabs).
       Per song:  label, color, sentence (shown at the top), audio, text (the description in the panel)
-      Optional:  bg (page background colour), effect: "hearts"
+      Optional:  bg (page background colour), effect: "hearts" | "stars", night: true (light header text)
       Per disk:  dark = the resting outline colour of the disk
     */
     const ITEMS = [
@@ -710,6 +714,9 @@
             id: "misc-sub-2",
             label: "goodnight",
             color: "#0b0d42",
+            bg: "#10133f",            // deep night-sky page background
+            effect: "stars",          // twinkling stars behind everything
+            night: true,              // light text on the dark background
             sentence: "if only the night wasn't the coldest time of the day...",
             audio: "/audio/swaying.mp3",
             text: "a drowsy yora stares at the night sky. there was a time her parents did this with her. oh look, there's orion!"
@@ -757,7 +764,7 @@
     const stackedQuery = window.matchMedia("(max-width: 860px)");
     const SPIN = reduceMotion ? 0 : 1;
     const TAU = Math.PI * 2;
-    const BOUNCE = reduceMotion ? 0 : 0.65;
+    const BOUNCE = reduceMotion ? 0 : 1.0;
 
     drawer.inert = true;
 
@@ -916,6 +923,7 @@
       const nextFx = (t && t.src.effect) || null;
       if (nextFx === "hearts" && fxMode !== "hearts") seedHearts();   // start with a scattering, not an empty sky
       fxMode = nextFx;
+      document.body.classList.toggle("night", !!(t && t.src.night));
 
       if (t) {
         sentenceEl.textContent = t.src.sentence;
@@ -1222,9 +1230,53 @@
       ctx.fill();
     }
 
+    /* ---- stars (effect: "stars"): fixed little points that twinkle, like looking up at the night sky ---- */
+    const STAR_COLORS = ["#ffffff", "#fff4d6", "#d8e4ff"];
+    let stars = [];
+    let starAmp = 0;
+    let fxT = 0;
+
+    function makeStars() {
+      const n = Math.round(Math.min(260, Math.max(90, (fxW * fxH) / 4500)));
+      stars = [];
+      for (let i = 0; i < n; i++) {
+        const big = Math.random() < 0.08;
+        stars.push({
+          x: Math.random(),                                  // stored as fractions of the screen so resizing keeps them in place
+          y: Math.random(),
+          r: big ? 1.5 + Math.random() * 0.8 : 0.5 + Math.random() * 0.9,
+          base: big ? 1 : 0.5 + Math.random() * 0.5,
+          speed: 0.6 + Math.random() * 2.2,
+          phase: Math.random() * TAU,
+          glow: big,
+          color: STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)]
+        });
+      }
+    }
+    makeStars();
+
+    function drawStars() {
+      for (const st of stars) {
+        const tw = reduceMotion ? 0.85 : 0.6 + 0.4 * Math.sin(fxT * st.speed + st.phase);
+        const a = st.base * tw * starAmp;
+        const x = st.x * fxW, y = st.y * fxH;
+        fxCtx.fillStyle = st.color;
+        if (st.glow) {
+          fxCtx.globalAlpha = a * 0.22;
+          fxCtx.beginPath(); fxCtx.arc(x, y, st.r * 3.4, 0, TAU); fxCtx.fill();
+        }
+        fxCtx.globalAlpha = a;
+        fxCtx.beginPath(); fxCtx.arc(x, y, st.r, 0, TAU); fxCtx.fill();
+      }
+      fxCtx.globalAlpha = 1;
+    }
+
     function updateFx(dt) {
       fxAmp += ((fxMode === "hearts" ? 1 : 0) - fxAmp) * Math.min(1, dt * 2.5);
       if (fxAmp < 0.002) fxAmp = 0;
+      starAmp += ((fxMode === "stars" ? 1 : 0) - starAmp) * Math.min(1, dt * 1.8);
+      if (starAmp < 0.002) starAmp = 0;
+      fxT += dt;
 
       if (fxMode === "hearts") {
         spawnCarry += dt * (heartTarget() / 9);        // average heart lives about 9 seconds
@@ -1235,15 +1287,18 @@
       }
 
       // nothing visible: clear once, then do no work at all
-      if (fxAmp === 0 && fxMode !== "hearts") {
+      if (fxAmp === 0 && starAmp === 0 && !fxMode) {
         hearts.length = 0;
         if (fxDirty) { fxCtx.clearRect(0, 0, fxW, fxH); fxDirty = false; }
         return;
       }
+      if (fxAmp === 0 && fxMode !== "hearts") hearts.length = 0;
 
       const m = reduceMotion ? 0 : 1;                  // reduced motion: hearts fade in place instead of drifting
       fxCtx.clearRect(0, 0, fxW, fxH);
       fxDirty = true;
+
+      if (starAmp > 0) drawStars();
 
       for (let i = hearts.length - 1; i >= 0; i--) {
         const h = hearts[i];
@@ -1295,7 +1350,7 @@
 
         const volScale = Math.max(0.25, tr.el.volume);
         const combined = ((rms * 3.2) + (bass * 0.85)) / volScale;
-        raw = Math.min(1, Math.pow(Math.max(0, combined - 0.12), 1.35));
+        raw = Math.min(1, Math.pow(Math.max(0, combined - 0.08), 1.2));
       }
 
       level += (raw - level) * (raw > level ? 0.85 : 0.22);
@@ -1327,7 +1382,7 @@
         n.disc.style.transform = `rotate(${n.angle.toFixed(3)}rad)`;
 
         n.ring.style.opacity = n.amp.toFixed(3);
-        n.ring.style.transform = `scale(${Math.min(1.28, 1 + n.amp * (0.015 + lvl * BOUNCE)).toFixed(3)})`;
+        n.ring.style.transform = `scale(${Math.min(1.36, 1 + n.amp * (0.02 + lvl * BOUNCE)).toFixed(3)})`;
       });
 
       noteEl.style.transform = `scale(${(1 + maxAmp * lvl * 0.22).toFixed(3)})`;
