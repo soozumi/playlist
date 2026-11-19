@@ -446,6 +446,28 @@
       color: #222;
     }
 
+    /* a disk with no tracks yet: a plain dark panel, no tabs, no player */
+    .empty-title { display: none; }
+
+    .panel.empty {
+      --panel-bg: #323232;
+      min-height: 12rem;
+    }
+    .panel.empty .empty-title {
+      display: block;
+      text-align: center;
+      font-size: 1.15rem;
+      letter-spacing: 0.35em;
+      color: #fff;
+    }
+    .panel.empty .desc { color: #fff; }
+    .panel.empty .player { display: none; }
+    .panel.empty .close { background: rgba(255, 255, 255, 0.12); color: #ddd; }
+    .panel.empty .close:hover { background: rgba(255, 255, 255, 0.22); }
+
+    .slide-drawer.no-tracks .rail { display: none; }
+    .app-layout.drawer-open.no-tracks { padding-right: var(--panel-w); }
+
     /* ---------- player (play / pause + scrubber) ---------- */
 
     .player {
@@ -538,7 +560,7 @@
       :root { --rail-w: 6rem; --tab-w: 4.4rem; --tab-w-open: 6rem; }
 
       .app-layout { flex-direction: column; }
-      .app-layout.drawer-open { padding-right: 0; }
+      .app-layout.drawer-open, .app-layout.drawer-open.no-tracks { padding-right: 0; }
       .main-content { flex: none; padding: 1.25rem 1rem 1rem; }
 
       .slide-drawer {
@@ -602,6 +624,7 @@
       <div class="panel">
         <button class="close" id="close-drawer" aria-label="Close panel">×</button>
 
+        <p class="empty-title" id="empty-title"></p>
         <p class="desc" id="drawer-body"></p>
 
         <div class="player empty" id="player">
@@ -631,6 +654,10 @@
       Optional:  bg (page background colour), effect: "hearts" | "stars", night: true (light header text)
       Per disk:  dark = the resting outline colour of the disk
     */
+    // what the panel says for a disk that has no tracks (bookmarks) yet
+    const EMPTY_TITLE = "u x u";
+    const EMPTY_TEXT = "unfortunately, danbi hasn’t added any tracks to this disk.";
+
     const ITEMS = [
       {
         id: "happy",
@@ -640,30 +667,30 @@
         sentence: "Is there a moment anymore perfect than this?",
         audio: "",
         bookmarks: [
-          {
-            id: "happy-sub-1",
-            label: "Traveling Girl",
-            color: "#e9d8a6",
-            sentence: "Let's go to the Balsa islands or something",
-            audio: "/audio/Orange_AIRLINE.mp3",
-            text: "yora (happily) traveling the world with a singular suitcase and a pair of sunglasses"
-          },
-          {
-            id: "happy-sub-2",
-            label: "Night on the Town",
-            color: "#d9a5b3",
-            sentence: "Jappon probably has a cool night life",
-            audio: "/audio/lovestory.mp3",
-            text: "Yora having her serial experiment lain moment (without the murder suicide at the club)"
-          },
-          {
-            id: "happy-sub-3",
-            label: "Full Heart",
-            color: "#7d7db5",
-            sentence: "So this is what this was all for...?",
-            audio: "/audio/Scattered_Flowers.mp3",
-            text: "that moment when you realize maybe the real artifact was the friends you made along the way"
-          }
+          // {
+          //   id: "happy-sub-1",
+          //   label: "Traveling Girl",
+          //   color: "#e9d8a6",
+          //   sentence: "Let's go to the Balsa islands or something",
+          //   audio: "/audio/Orange_AIRLINE.mp3",
+          //   text: "yora (happily) traveling the world with a singular suitcase and a pair of sunglasses"
+          // },
+          // {
+          //   id: "happy-sub-2",
+          //   label: "Night on the Town",
+          //   color: "#d9a5b3",
+          //   sentence: "Jappon probably has a cool night life",
+          //   audio: "/audio/lovestory.mp3",
+          //   text: "Yora having her serial experiment lain moment (without the murder suicide at the club)"
+          // },
+          // {
+          //   id: "happy-sub-3",
+          //   label: "Full Heart",
+          //   color: "#7d7db5",
+          //   sentence: "So this is what this was all for...?",
+          //   audio: "/audio/Scattered_Flowers.mp3",
+          //   text: "that moment when you realize maybe the real artifact was the friends you made along the way"
+          // }
           // {
           //   id: "happy-sub-4",
           //   label: "Love Song",
@@ -684,14 +711,14 @@
         sentence: "at least she's rich",
         audio: "",
         bookmarks: [
-          {
-            id: "sad-sub-1",
-            label: "Tragedy",
-            color: "#7f93b0",
-            sentence: "rich people have feelings too!",
-            audio: "/audio/openingtheme.mp3",
-            text: "Yora just stumbled upon the dead bodies of all of her friends. this sucks...\n LOWK just skip to 1:16 for the most bang 4 ur buck"
-          }
+          // {
+          //   id: "sad-sub-1",
+          //   label: "Tragedy",
+          //   color: "#7f93b0",
+          //   sentence: "rich people have feelings too!",
+          //   audio: "/audio/openingtheme.mp3",
+          //   text: "Yora just stumbled upon the dead bodies of all of her friends. this sucks...\n LOWK just skip to 1:16 for the most bang 4 ur buck"
+          // }
         ]
       },
       {
@@ -731,14 +758,14 @@
         sentence: "let's make al qaeda look like a birthday party!",
         audio: "",
         bookmarks: [
-          {
-            id: "battle-sub-1",
-            label: "Explosion",
-            color: "#c9736b",
-            sentence: "If only she was a better student...",
-            audio: "/audio/Five.mp3",
-            text: "The wind just blew through her hair as she stares down are her opponent... this is their big day. THEY'RE ABOUT TO CATCH THEIR FIRST BODY!"
-          }
+          // {
+          //   id: "battle-sub-1",
+          //   label: "Explosion",
+          //   color: "#c9736b",
+          //   sentence: "If only she was a better student...",
+          //   audio: "/audio/Five.mp3",
+          //   text: "The wind just blew through her hair as she stares down are her opponent... this is their big day. THEY'RE ABOUT TO CATCH THEIR FIRST BODY!"
+          // }
         ]
       }
     ];
@@ -752,6 +779,9 @@
     const drawer = document.getElementById("slide-drawer");
     const rail = document.getElementById("bookmark-container");
     const descEl = document.getElementById("drawer-body");
+    const emptyTitleEl = document.getElementById("empty-title");
+    const panelEl = document.querySelector(".panel");
+    const hasTracks = (item) => !!(item && item.bookmarks && item.bookmarks.length);
     const closeDrawerBtn = document.getElementById("close-drawer");
     const playerEl = document.getElementById("player");
     const seek = document.getElementById("seek");
@@ -953,8 +983,8 @@
       }
 
       // the panel only shows the description of whichever song is playing
-      if (selectedItem) {
-        const src = t ? t.src : (selectedTab || selectedItem);
+      if (selectedItem && hasTracks(selectedItem)) {
+        const src = t && t.src.text !== undefined ? t.src : (selectedTab || selectedItem);   // pointing at a disk with no tracks keeps the current text
         descEl.textContent = (src && src.text) || "";
       }
 
@@ -1161,6 +1191,15 @@
       hover = null;
       if (userPaused) setPaused(false);
       renderTabs(item);
+
+      const empty = !hasTracks(item);
+      panelEl.classList.toggle("empty", empty);
+      drawer.classList.toggle("no-tracks", empty);
+      appLayout.classList.toggle("no-tracks", empty);
+      if (empty) {
+        emptyTitleEl.textContent = EMPTY_TITLE;
+        descEl.textContent = EMPTY_TEXT;
+      }
       drawer.inert = false;
       drawer.classList.add("open");
       appLayout.classList.add("drawer-open");
