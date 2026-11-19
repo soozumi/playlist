@@ -130,6 +130,25 @@
       transform: translateY(0);
     }
 
+    /* small hint shown until the first click (browsers won't play sound before that) */
+    #sound-hint {
+      position: fixed;
+      left: 50%;
+      bottom: max(1.2rem, env(safe-area-inset-bottom));
+      transform: translate(-50%, 8px);
+      z-index: 200;
+      padding: 0.55rem 1.1rem;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.74);
+      color: #fff;
+      font-size: 0.9rem;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.35s ease, transform 0.35s ease;
+    }
+    #sound-hint.show { opacity: 1; transform: translate(-50%, 0); }
+
     /* ---------- the board: four disks + volume ---------- */
 
     .board {
@@ -576,6 +595,7 @@
 <body>
 
   <canvas id="fx" aria-hidden="true"></canvas>
+  <div id="sound-hint" role="status">click anywhere once to turn the sound on ♪</div>
 
   <div class="app-layout" id="app-layout">
     <div class="main-content">
@@ -839,10 +859,13 @@
       return track;
     }
 
+    // The analyser is only wired in once the AudioContext is actually running (after the first click).
+    // Before that the song plays straight through the <audio> element, because routing it through a
+    // suspended context would make it silent even where the browser allows the hover preview to play.
     function ensureAnalyser(track) {
       if (!track || track.connected) return;
-      const ctx = getAudioContext();
-      if (!ctx) return;
+      const ctx = audioCtx;
+      if (!ctx || ctx.state !== "running") return;
       try {
         const source = ctx.createMediaElementSource(track.el);
         const analyser = ctx.createAnalyser();
@@ -917,9 +940,16 @@
       }
     }
 
-    // browsers only allow sound after a tap / click / key press
+    // Browsers only allow sound after a tap / click / key press, and hovering doesn't count. So on a
+    // fresh page the first hover can't make noise yet; the hint says why, and the first click starts it.
+    const soundHint = document.getElementById("sound-hint");
+    let gestured = false;
+    let wantHint = false;
+
     function unlockAudio() {
-      getAudioContext();
+      gestured = true;
+      soundHint.classList.remove("show");
+      getAudioContext();   // created here, inside a real click / tap / key press
       if (currentTrack) {
         ensureAnalyser(currentTrack);
         if (currentTrack.el.paused && !userPaused) {
@@ -929,6 +959,7 @@
     }
     window.addEventListener("pointerdown", unlockAudio, { passive: true });
     window.addEventListener("keydown", unlockAudio, { passive: true });
+    window.addEventListener("touchstart", unlockAudio, { passive: true });
 
     /* ---------- scene: background, sentence, description, audio, active disk ---------- */
     const nodes = [];
@@ -968,6 +999,7 @@
       if (t) playerEl.style.setProperty("--seek-color", `color-mix(in srgb, ${t.src.color} 55%, #555)`);
 
       setTrack(t ? getTrack(t.src.audio) : null);
+      wantHint = !!t && !!t.src.audio;
     }
 
     /* ---------- scrubber + play / pause ---------- */
@@ -1015,6 +1047,7 @@
 
     function updatePlayer() {
       const el = currentTrack ? currentTrack.el : null;
+      soundHint.classList.toggle("show", wantHint && !gestured && !(el && !el.paused && el.currentTime > 0));
       const dur = el && isFinite(el.duration) ? el.duration : 0;
 
       if (dur !== lastDuration) {
@@ -1357,6 +1390,8 @@
 
       const tr = currentTrack;
       let raw = 0;
+
+      if (tr && !tr.connected && audioCtx && audioCtx.state === "running") ensureAnalyser(tr);
 
       if (tr && tr.analyser && !tr.el.paused && audioCtx && audioCtx.state === "running") {
         tr.analyser.getByteTimeDomainData(tr.timeData);
