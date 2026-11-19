@@ -651,7 +651,7 @@
     /*
       Each disk has `bookmarks` (its songs / side tabs).
       Per song:  label, color, sentence (shown at the top), audio, text (the description in the panel)
-      Optional:  bg (page background colour), effect: "hearts" | "stars", night: true (light header text)
+      Optional:  bg (page background colour), effect: "hearts" | "stars" | "rain", night: true (light header text)
       Per disk:  dark = the resting outline colour of the disk
     */
     // what the panel says for a disk that has no tracks (bookmarks) yet
@@ -725,6 +725,9 @@
             id: "sad-sub-2",
             label: "Fool",
             color: "#60709c",
+            bg: "#465068",            // grey-blue rainy-day page background
+            effect: "rain",           // rain streaks falling behind everything
+            night: true,              // light text on the dark background
             sentence: "nothing's changed, i guess",
             audio: "/audio/onemoremoon.mp3",
             text: "embarrassment and rejection are apart of life, but why did they have to meet yora at this taxi on this ugly rainy day?"
@@ -734,8 +737,8 @@
       {
         id: "misc",
         label: "misc",
-        color: "#888888",
-        dark: "#4a4a4a",
+        color: "#a8a8a8",
+        dark: "#6e6e6e",
         sentence: "looms over her like a rainy cloud, or the sun. either way",
         audio: "",
         bookmarks: [
@@ -1346,11 +1349,53 @@
       fxCtx.globalAlpha = 1;
     }
 
+    /* ---- rain (effect: "rain"): thin slanted streaks falling past the page ---- */
+    const RAIN_COLOR = "#cfdaf0";
+    let drops = [];
+    let rainAmp = 0;
+
+    function makeRain() {
+      const n = Math.round(Math.min(240, Math.max(90, fxW / 6)));
+      drops = [];
+      for (let i = 0; i < n; i++) {
+        drops.push({
+          x: Math.random(),                                  // fraction of the screen width
+          y: Math.random() * fxH,
+          len: 10 + Math.random() * 18,
+          speed: 520 + Math.random() * 420,                  // px per second
+          alpha: 0.18 + Math.random() * 0.3,
+          w: Math.random() < 0.2 ? 1.4 : 1
+        });
+      }
+    }
+    makeRain();
+    window.addEventListener("resize", makeRain);
+
+    function drawRain(dt) {
+      const slant = 0.16;                                    // sideways drift per px of fall (wind)
+      fxCtx.strokeStyle = RAIN_COLOR;
+      fxCtx.lineCap = "round";
+      for (const d of drops) {
+        d.y += d.speed * dt;
+        if (d.y - d.len > fxH) { d.y = -d.len; d.x = Math.random(); }
+        const x = d.x * fxW + d.y * slant;
+        fxCtx.globalAlpha = d.alpha * rainAmp;
+        fxCtx.lineWidth = d.w;
+        fxCtx.beginPath();
+        fxCtx.moveTo(x, d.y);
+        fxCtx.lineTo(x - d.len * slant, d.y - d.len);
+        fxCtx.stroke();
+      }
+      fxCtx.globalAlpha = 1;
+    }
+
     function updateFx(dt) {
       fxAmp += ((fxMode === "hearts" ? 1 : 0) - fxAmp) * Math.min(1, dt * 2.5);
       if (fxAmp < 0.002) fxAmp = 0;
       starAmp += ((fxMode === "stars" ? 1 : 0) - starAmp) * Math.min(1, dt * 1.8);
       if (starAmp < 0.002) starAmp = 0;
+      rainAmp += ((fxMode === "rain" && !reduceMotion ? 1 : 0) - rainAmp) * Math.min(1, dt * 2.5);
+      if (rainAmp < 0.002) rainAmp = 0;
       fxT += dt;
 
       if (fxMode === "hearts") {
@@ -1362,7 +1407,7 @@
       }
 
       // nothing visible: clear once, then do no work at all
-      if (fxAmp === 0 && starAmp === 0 && !fxMode) {
+      if (fxAmp === 0 && starAmp === 0 && rainAmp === 0 && !fxMode) {
         hearts.length = 0;
         if (fxDirty) { fxCtx.clearRect(0, 0, fxW, fxH); fxDirty = false; }
         return;
@@ -1374,6 +1419,7 @@
       fxDirty = true;
 
       if (starAmp > 0) drawStars();
+      if (rainAmp > 0) drawRain(dt);
 
       for (let i = hearts.length - 1; i >= 0; i--) {
         const h = hearts[i];
