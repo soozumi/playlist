@@ -656,6 +656,8 @@
     */
     // what the panel says for a disk that has no tracks (bookmarks) yet
     const EMPTY_TITLE = "u x u";
+    const EMPTY_DISK_COLOR = "#000000";      // disks with no tracks are black (white text)
+    const EMPTY_DISK_OUTLINE = "#4a4a4a";
     const EMPTY_TEXT = "unfortunately, danbi hasn’t added any tracks to this disk.";
 
     const ITEMS = [
@@ -968,7 +970,8 @@
 
     function apply() {
       const t = resolveTarget();
-      document.body.style.backgroundColor = t ? (t.src.bg || tint(t.src.color)) : BASE_BG;
+      const emptyDisk = !!t && !!t.src.bookmarks && !hasTracks(t.src);   // pointing at a disk with no tracks
+      document.body.style.backgroundColor = t ? (t.src.bg || tint(emptyDisk ? EMPTY_DISK_COLOR : t.src.color)) : BASE_BG;
 
       const nextFx = (t && t.src.effect) || null;
       if (nextFx === "hearts" && fxMode !== "hearts") seedHearts();   // start with a scattering, not an empty sky
@@ -1096,8 +1099,11 @@
       const cell = document.createElement("button");
       cell.type = "button";
       cell.className = "cell";
-      cell.style.setProperty("--c", item.color);
-      if (item.dark) cell.style.setProperty("--c-dark", item.dark);
+      // a disk with no tracks yet is black; once it has tracks it uses its own colours
+      const empty = !hasTracks(item);
+      cell.style.setProperty("--c", empty ? EMPTY_DISK_COLOR : item.color);
+      if (empty) cell.style.setProperty("--c-dark", EMPTY_DISK_OUTLINE);
+      else if (item.dark) cell.style.setProperty("--c-dark", item.dark);
       cell.innerHTML = '<span class="node"><span class="ring"></span><span class="disc"></span></span>';
       cell.querySelector(".disc").textContent = item.label;
 
