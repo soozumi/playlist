@@ -1204,7 +1204,11 @@
         btn.addEventListener("pointerleave", off);
         btn.addEventListener("focus", () => { if (btn.matches(":focus-visible")) on(); });
         btn.addEventListener("blur", off);
-        btn.addEventListener("click", () => { unlockAudio(); selectTab(bm); });
+        btn.addEventListener("click", () => {
+          unlockAudio();
+          selectTab(bm);
+          if (currentTrack) currentTrack.el.currentTime = 0;   // clicking a tab restarts its song
+        });
 
         rail.appendChild(btn);
         tabEls.push({ bm, btn });
