@@ -1142,6 +1142,7 @@
         }
         const song = hover && hover.src !== item ? hover.src : null;
         openPanel(item, song);
+        if (currentTrack) currentTrack.el.currentTime = 0;   // clicking a disk restarts the song instead of continuing the preview
       });
 
       container.appendChild(cell);
